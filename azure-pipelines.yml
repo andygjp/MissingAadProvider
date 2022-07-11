@@ -40,12 +40,12 @@ stages:
     pool:
       vmImage: windows-2022
     jobs:
-      - job: winFunc
-        displayName: Create Windows Sample Func
+      - job:
+        displayName: Create web app
         steps:
           - checkout: none
           - download: current
-            artifact: Sample-Win-Full
+            artifact: MissingAadProvider
           - task: AzureCLI@2
             displayName: Create or update function infrastructure
             inputs:
@@ -66,6 +66,7 @@ stages:
                 --sku $servicePlanSku `
                 --is-linux
                 
+                # runtime for Windows hosts is 'dotnet:6'
                 "creating web app"
                 az webapp create --name $resourceName `
                 --resource-group $resourceName `
@@ -79,15 +80,11 @@ stages:
                 --http20-enabled true `
                 --min-tls-version 1.2 `
                 --ftps-state Disabled `
-                --always-on true
+                --always-on true `
+                --use-32bit-worker-process false
                 
                 "upload app zip"
                 az webapp deployment source config-zip --name $resourceName `
                 --resource-group $resourceName `
                 --src $(Pipeline.Workspace)/MissingAadProvider/MissingAadProvider.zip `
-                --debug
-                
-                az webapp deployment source config-zip --name $resourceName `
-                --resource-group $resourceName `
-                --src ./output/MissingAadProvider.zip `
                 --debug
