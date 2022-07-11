@@ -1,0 +1,8 @@
+bin/
+obj/
+.git/
+.idea/
+Properties/
+output/
+README.md
+azure-pipelines.yml

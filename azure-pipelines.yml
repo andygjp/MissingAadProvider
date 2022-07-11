@@ -1,0 +1,93 @@
+trigger:
+  - main
+
+parameters:
+  - name: azureSubscription
+    displayName: Id of the service connection to your Azure subscription
+    type: string
+
+stages:
+  - stage: build
+    pool:
+      vmImage: windows-2022
+    jobs:
+      - job:
+        displayName: Create build artefact
+        steps:
+          - checkout: self
+          - task: Bash@3
+            displayName: Build
+            inputs:
+              targetType: inline
+              script: |
+                dotnet publish --self-contained false `
+                  --runtime linux-x64 `
+                  --output ./output/MissingAadProvider `
+                  ./MissingAadProvider.csproj
+          - task: PowerShell@2
+            displayName: Archive
+            inputs:
+              targetType: 'inline'
+              script: |
+                # Include hidden files in the archive
+                Get-ChildItem -Path ./output/MissingAadProvider/ -Force `
+                  | Compress-Archive -DestinationPath ./output/MissingAadProvider.zip
+          - publish: ./output/MissingAadProvider.zip
+            artifact: MissingAadProvider
+            displayName: Publish MissingAadProvider.zip
+
+  - stage: deploy
+    pool:
+      vmImage: windows-2022
+    jobs:
+      - job: winFunc
+        displayName: Create Windows Sample Func
+        steps:
+          - checkout: none
+          - download: current
+            artifact: Sample-Win-Full
+          - task: AzureCLI@2
+            displayName: Create or update function infrastructure
+            inputs:
+              azureSubscription: $(azureSubscription)
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: |
+                $resourceName = "win-easy-auth-silver-651"
+                $resourceLocation = "UK South"
+                $servicePlanSku = "B1"
+                
+                "create resource group '$resourceName' in '$resourceLocation'"
+                az group create --name $resourceName --location $resourceLocation
+                
+                "create appservice plan '$resourceName' in '$resourceLocation'"
+                az appservice plan create --name $resourceName `
+                --resource-group $resourceName `
+                --sku $servicePlanSku `
+                --is-linux
+                
+                "creating web app"
+                az webapp create --name $resourceName `
+                --resource-group $resourceName `
+                --plan $resourceName `
+                --runtime "DOTNETCORE:6.0" `
+                --https-only true
+                
+                "update '$resourceName' web app config"
+                az webapp config set --name $resourceName `
+                --resource-group $resourceName `
+                --http20-enabled true `
+                --min-tls-version 1.2 `
+                --ftps-state Disabled `
+                --always-on true
+                
+                "upload app zip"
+                az webapp deployment source config-zip --name $resourceName `
+                --resource-group $resourceName `
+                --src $(Pipeline.Workspace)/MissingAadProvider/MissingAadProvider.zip `
+                --debug
+                
+                az webapp deployment source config-zip --name $resourceName `
+                --resource-group $resourceName `
+                --src ./output/MissingAadProvider.zip `
+                --debug
